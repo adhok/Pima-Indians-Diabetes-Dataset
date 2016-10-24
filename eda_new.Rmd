@@ -1,0 +1,219 @@
+---
+title: "Exploratory Data Analysis"
+author: "Pradeep Adhokshaja"
+date: "22 October 2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Loading the necessary tools
+
+```{r message=FALSE}
+library(plotly)
+library(dplyr)
+library(knitr)
+```
+
+# Structure of the Data Set
+
+
+```{r pressure, echo=FALSE}
+diabetes <- read.csv("diabetes.csv",stringsAsFactors = F,header = T)
+diabetes$Outcome <- as.factor(diabetes$Outcome)
+str(diabetes)
+```
+
+The diabetes pedigree function : This measure of genetic influence gave us an idea of the hereditary risk one might have with the onset of diabetes mellitus. It provided some data 
+on diabetes mellitus history in relatives and the genetic relationship of those relatives to the patient.
+
+# Observations about data
+
+## Age vs Diabetes
+
+```{r message=FALSE}
+qplot(Outcome,Age,data=diabetes,geom="boxplot",fill=Outcome)
+
+```
+
+The median age of individuals who have diabetes is higher than that of those who do not have diabetes.
+
+
+## SkinThickness and Blood Pressure
+
+```{r}
+p <- plot_ly(diabetes, x = SkinThickness, y = BloodPressure, name = "Number of Movies by Year",mode = "markers")
+p
+
+```
+
+There seems to be no discernable relationship here. Let's try digging deeper by removing outliers from our data.
+
+```{r}
+
+temp <- diabetes %>% select(SkinThickness,BloodPressure)
+qnt <- quantile(temp$SkinThickness, probs=c(.25, .75), na.rm = T)
+H <- 1.5 * IQR(temp$SkinThickness, na.rm =T)
+
+temp$SkinThickness <- ifelse(temp$SkinThickness<(qnt[1]-H),NA,temp$SkinThickness)
+temp$SkinThickness <- ifelse(temp$SkinThickness>(qnt[2]+H),NA,temp$SkinThickness)
+temp$SkinThickness <- ifelse(temp$SkinThickness==0,NA,temp$SkinThickness)
+temp<- na.omit(temp)
+
+plot_ly(temp, x = SkinThickness, y = BloodPressure, name = "Skin Thickness vs BloodPressure",mode = "markers") %>%
+    add_trace(y = fitted(lm(BloodPressure ~ as.numeric(SkinThickness))), x = SkinThickness)
+
+
+
+```
+
+By looking at the tilt of the regression line above , we do not see much of a linear relationship here.
+
+## BMI and  Skin Thickness
+
+
+```{r}
+temp <- filter(diabetes,SkinThickness!=0)
+ggplotly(ggplot(temp,aes(x=BMI,y=SkinThickness,shape=Outcome,colour=Outcome)) +
+  geom_point()+
+  scale_shape_manual(values=c(1,2))+
+  scale_colour_brewer(palette = "Set2"))
+
+```
+
+There seems to be a linear relationship between the skinthickness metric and the Body Mass Index.
+
+```{r}
+cor(temp$SkinThickness,temp$BMI)
+```
+
+These two have a correlation of 0.631 which implies linear relationship.
+
+```{r}
+model_0 <- lm(SkinThickness~BMI,data=subset(temp,Outcome==0))
+model_1 <- lm(SkinThickness~BMI,data=subset(temp,Outcome==1))
+summary(model_0)
+summary(model_1)
+```
+
+When the individual has diabetes, the SkinThickness can be measured by the following model
+$SkinThickNess = 0.8089*BMI+(3.9713)$
+<br>
+The other model when the diabetes results are negative is:
+$SkinThickness = 0.93297*BMI + (-1.89484)$
+
+The models can be visualized as follows:
+
+```{r}
+ggplotly(ggplot(temp,aes(x=BMI,y=SkinThickness,colour=Outcome))+
+  geom_point()+
+  scale_colour_brewer(palette="Set1")+
+  geom_smooth(method=lm,se=F,fullrange=T))
+
+```
+
+## Glucose and Diabetes
+
+```{r}
+ggplot(diabetes,aes(x=Glucose))+geom_histogram(fill="white",colour="black")+
+  facet_grid(Outcome~.)
+```
+
+### Conditions
+
+<li> The distributions are skewed but the sample is greater than 30 </li>
+<li> The individuals are independent of each other </li>
+<li> Both the groups are independent of each other </li>
+<li> The sample size is lesser than 10% of the population </li>
+
+Let's formulate a hypothesis to assess the mean difference of glucose levels between the positive and negative groups.
+
+$H0:0$
+<br>
+$HA:>0$
+
+```{r}
+m0 <- mean(subset(diabetes,Outcome==0)$Glucose)
+m1 <- mean(subset(diabetes,Outcome==1)$Glucose)
+dim0 <- dim(subset(diabetes,Outcome==0))[1]
+dim1 <- dim(subset(diabetes,Outcome==1))[1]
+s0 <- sd(subset(diabetes,Outcome==0)$Glucose)
+s1 <- sd(subset(diabetes,Outcome==1)$Glucose)
+
+```
+
+Calculating the parameters for the test.
+
+```{r}
+x_bar <- m1-m0
+mu <- 0
+se <- ((s0^2)/(dim0))+((s1^2)/(dim1))
+se <- sqrt(se)
+df <- min(dim0-1,dim1-1)
+t_stat <- (x_bar-mu)/(se)
+pt(t_stat,df=df,lower.tail = F)
+```
+
+As the p-value fro this test is lesser than the critical values of 0.05, we reject the null hypothesis for the alternate hypothesis. Thus at the 95 % confidence levels we can say that the average glucose levels for individuals with diabetes is greater than that of the people without diabetes.
+
+
+## Age and Pregnancies
+
+Average pregnancies by age
+
+```{r}
+temp <- diabetes %>% select(Pregnancies,Age)
+temp1 <- temp %>% group_by(Age) %>% summarise(n=n(),total_preg = sum(Pregnancies)) %>% mutate(average_preg = total_preg/n) %>% filter(n>5) %>% arrange(desc(average_preg))
+kable(temp1)
+#ggplotly(ggplot(temp,aes(x=Age,y=n))+geom_line()+geom_point())
+
+```
+
+We see that most individuals were adults and young adults.The oldest individual in this set is of the age 81. The highest average number of pregancies tend to be achieved by women of age 51. In the above table, we have displayed ages that have appeared more than 5 times.
+
+## Predicting Diabetes
+
+The binary logistic model is used to estimate the probability of a binary response based on one or more predictor variables.
+
+```{r}
+set.seed(100)
+train <- sample(dim(diabetes)[1],dim(diabetes)[1]*0.9)
+diabetes_train <- diabetes[train,]
+diabetes_test <- diabetes[-train,]
+model <- glm(Outcome~.,data=diabetes_train,family = binomial(link='logit'))
+summary(model)
+predictions <- predict(model,newdata=diabetes_test,type="response")
+predictions <- round(predictions)
+mean(predictions==diabetes_test$Outcome)
+```
+
+
+## Improving the Performance
+
+In the previous section we used 0.5 as the threshold for rounding up the result to 1. Do we get a better result by changing the threshold?
+
+```{r}
+threshold <- seq(from=0.1,to=0.9,by=0.01)
+j <- 1
+accuracy <-c()
+for(i in threshold){
+  predictions <- predict(model,newdata=diabetes_test,type = 'response')
+  predictions <- ifelse(predictions>i,1,0)
+  accuracy[j] <- mean(predictions==diabetes_test$Outcome)
+  j=j+1
+  
+}
+model_accuracy <- data.frame(threshold,accuracy)
+ggplotly(ggplot(model_accuracy,aes(x=threshold,y = accuracy))+geom_line()+geom_point()+ggtitle("Threshold vs Accuracy"))
+
+
+```
+
+The data frame can be displayed as follows
+```{r}
+kable(model_accuracy %>% arrange(desc(accuracy)))
+```
+
+We achieve an accuracy of 82% in predicting diabetes by using 0.51 as the threshold.
